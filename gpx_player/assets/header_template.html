@@ -12,3 +12,69 @@
 ">
     {{ title }}
 </div>
+
+<!-- Dynamic loader form -->
+<div id="gpx-player-loader-{{ map_id }}" style="position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index:9999; background: rgba(0,0,0,0.5); color:white; padding:6px; border-radius:6px; border:1px solid white; font-size:12px;">
+  <form id="gpx-player-form-{{ map_id }}" onsubmit="return false;">
+    <label for="gpx-log-id-{{ map_id }}">log_id</label>
+    <input id="gpx-log-id-{{ map_id }}" name="log_id" type="text" style="width:110px; margin-right:6px;" />
+    <label for="gpx-start-{{ map_id }}">start</label>
+    <input id="gpx-start-{{ map_id }}" name="start" type="text" placeholder="2026-04-12T17:01:00+02:00" style="width:170px; margin-right:6px;" />
+    <label for="gpx-end-{{ map_id }}">end</label>
+    <input id="gpx-end-{{ map_id }}" name="end" type="text" placeholder="2026-04-12T17:33:00+02:00" style="width:170px; margin-right:6px;" />
+    <button id="gpx-load-btn-{{ map_id }}" type="button" style="padding:2px 8px;">Load</button>
+    <span id="gpx-loader-status-{{ map_id }}" style="margin-left:8px; color:#ddd;"></span>
+  </form>
+</div>
+
+<script>
+(function(){
+  // Attach interactive loader behavior for this map instance.
+  const mapId = {{ map_id|tojson }};
+  const btn = document.getElementById(`gpx-load-btn-${mapId}`);
+  const status = document.getElementById(`gpx-loader-status-${mapId}`);
+  const logInput = document.getElementById(`gpx-log-id-${mapId}`);
+  const startInput = document.getElementById(`gpx-start-${mapId}`);
+  const endInput = document.getElementById(`gpx-end-${map_id}`);
+
+  function showStatus(msg, isError) {
+    status.textContent = msg;
+    status.style.color = isError ? 'salmon' : '#ddd';
+  }
+
+  btn.addEventListener('click', async function(){
+    const logId = encodeURIComponent(logInput.value || '');
+    const start = encodeURIComponent(startInput.value || '');
+    const end = encodeURIComponent(endInput.value || '');
+    if (!logId) { showStatus('enter log_id', true); return; }
+    showStatus('loading...');
+    try {
+      const qs = `?log_id=${logId}&start=${start}&end=${end}`;
+      const res = await fetch(`/track-data${qs}`);
+      if (!res.ok) {
+        const text = await res.text();
+        showStatus(`error ${res.status}: ${text}`, true);
+        return;
+      }
+      const payload = await res.json();
+      if (!window.gpxPlayerRegisterPayload) {
+        showStatus('player API unavailable', true);
+        return;
+      }
+      // back-compat: if payload doesn't supply mapId, set it to current map
+      const targetMapId = payload.mapId || mapId;
+      window.gpxPlayerRegisterPayload(targetMapId, payload);
+      // initialize only this map
+      if (window.gpxPlayerInitMap) {
+        window.gpxPlayerInitMap(targetMapId);
+      } else if (window.gpxPlayerInit) {
+        window.gpxPlayerInit();
+      }
+      showStatus('loaded');
+    } catch (e) {
+      showStatus('fetch error', true);
+      console.error(e);
+    }
+  });
+})();
+</script>
