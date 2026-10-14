@@ -7,8 +7,8 @@ from importlib import resources
 from typing import List, Optional, Sequence, Tuple
 
 import folium
-import gpxpy
-import gpxpy.gpx
+#import gpxpy
+#import gpxpy.gpx
 import jinja2
 import matplotlib.pyplot as plt
 from jinja2 import Environment, PackageLoader, select_autoescape

@@ -3,8 +3,8 @@ from datetime import datetime
 from itertools import chain
 from pathlib import Path
 
-import gpxpy
-from gpxpy.gpx import GPXBounds
+#import gpxpy
+#from gpxpy.gpx import GPXBounds
 from lxml import etree as ET
 
 
