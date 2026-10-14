@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dynamic GPX Player</title>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: sans-serif;
+      background: #111;
+    }
+
+    #map {
+      width: 100%;
+      height: 100vh;
+    }
+
+    .gpx-loader {
+      position: fixed;
+      top: 56px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: rgba(0, 0, 0, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 8px;
+      color: white;
+      padding: 8px 10px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+      font-size: 12px;
+    }
+
+    .gpx-loader form {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .gpx-loader label {
+      font-weight: 600;
+      opacity: 0.95;
+    }
+
+    .gpx-loader input {
+      min-width: 110px;
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.5);
+      background: rgba(255,255,255,0.08);
+      color: white;
+      padding: 4px 6px;
+    }
+
+    .gpx-loader input::placeholder {
+      color: rgba(255,255,255,0.7);
+    }
+
+    .gpx-loader button {
+      padding: 5px 10px;
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.6);
+      background: rgba(255,255,255,0.1);
+      color: white;
+      cursor: pointer;
+    }
+
+    .gpx-loader-status {
+      min-width: 120px;
+      font-size: 11px;
+      opacity: 0.9;
+      margin-left: 4px;
+      color: #ddd;
+    }
+
+    .gpx-loader-status.error {
+      color: #ff9a9a;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="gpx-loader">
+    <form id="gpx-form">
+      <label for="log_id">log_id</label>
+      <input id="log_id" type="text" value="" placeholder="log-123" />
+
+      <label for="start">start</label>
+      <input id="start" type="text" value="" placeholder="2026-04-12T17:01:00+02:00" />
+
+      <label for="end">end</label>
+      <input id="end" type="text" value="" placeholder="2026-04-12T17:33:00+02:00" />
+
+      <button id="load-btn" type="button">Load</button>
+      <span id="status" class="gpx-loader-status">idle</span>
+    </form>
+  </div>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <script>
+    (function () {
+      const mapId = 'dynamicMap';
+      const title = 'GPX Player';
+
+      // Create the Leaflet map first.
+      window[mapId] = L.map('map', {
+        attributionControl: false,
+        zoomControl: true
+      }).setView([0, 0], 2);
+
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(window[mapId]);
+
+      // Dummy payload so the player can initialize safely even before a real
+      // track is loaded.
+      const emptyPayload = {
+        mapId: mapId,
+        sliderId: 'gpx-player-slider-' + mapId,
+        timeLegendId: 'gpx-player-time-legend-' + mapId,
+        playPauseButtonId: 'gpx-player-play-pause-' + mapId,
+        boatLegendId: 'boat-legend-' + mapId,
+
+        title: title,
+        colors: ['red', 'green', 'blue', 'orange', 'purple'],
+        points: [],
+        speeds: [],
+        distances: [],
+        avgSpeeds: [],
+        segmentColors: [],
+        trackNames: [],
+        timestamps: [],
+        minTime: new Date(0).toISOString(),
+        maxTime: new Date(0).toISOString(),
+        timeRange: 0,
+        tailPointCount: 60,
+        fullTrackLayerNames: [],
+        sliderActiveColor: '#6e6e6e',
+        sliderInactiveColor: '#d0d0d0'
+      };
+
+      window.gpxPlayerPlayback = window.gpxPlayerPlayback || {};
+      window.gpxPlayerPlayback[mapId] = emptyPayload;
+
+      // Small compatibility wrapper if the library is not yet patched to expose
+      // window.gpxPlayerInitMap(). The backend should prefer that function.
+      window.gpxPlayerRegisterPayload = function (id, payload) {
+        window.gpxPlayerPlayback = window.gpxPlayerPlayback || {};
+        window.gpxPlayerPlayback[id] = payload;
+      };
+
+      window.gpxPlayerInitMap = function (id) {
+        const state = window.gpxPlayerPlayback && window.gpxPlayerPlayback[id];
+        if (!state) return;
+        if (state.initialized) return;
+
+        // This is intentionally a tiny compatibility wrapper.
+        // The production project should expose the real initPlaybackMap function
+        // from animate_tracks.js. This wrapper just calls the library if it is
+        // already globally available.
+        if (window.initAllPlaybackMaps) {
+          window.initAllPlaybackMaps();
+        } else if (window.gpxPlayerInit) {
+          window.gpxPlayerInit();
+        }
+      };
+
+      // Optional: if your patched animate_tracks.js exposes initPlaybackMap directly,
+      // the call below can be replaced by:
+      // window.gpxPlayerInitMap(mapId);
+
+      const statusEl = document.getElementById('status');
+      const logEl = document.getElementById('log_id');
+      const startEl = document.getElementById('start');
+      const endEl = document.getElementById('end');
+      const loadBtn = document.getElementById('load-btn');
+
+      function setStatus(text, isError) {
+        statusEl.textContent = text;
+        statusEl.classList.toggle('error', !!isError);
+      }
+
+      async function fetchTrack() {
+        const logId = encodeURIComponent((logEl.value || '').trim());
+        const start = encodeURIComponent((startEl.value || '').trim());
+        const end = encodeURIComponent((endEl.value || '').trim());
+
+        if (!logId) {
+          setStatus('enter log_id', true);
+          return;
+        }
+
+        const url = `/track-data?log_id=${logId}&start=${start}&end=${end}`;
+
+        setStatus('loading?');
+
+        let response;
+        try {
+          response = await fetch(url);
+        } catch (e) {
+          setStatus('fetch failed', true);
+          console.error(e);
+          return;
+        }
+
+        if (!response.ok) {
+          const text = await response.text();
+          setStatus(`HTTP ${response.status}`, true);
+          console.error(text);
+          return;
+        }
+
+        let payload;
+        try {
+          payload = await response.json();
+        } catch (e) {
+          setStatus('invalid JSON', true);
+          console.error(e);
+          return;
+        }
+
+        const payloadMapId = payload.mapId || mapId;
+        payload.mapId = payloadMapId;
+        payload.sliderId = payload.sliderId || 'gpx-player-slider-' + payloadMapId;
+        payload.timeLegendId = payload.timeLegendId || 'gpx-player-time-legend-' + payloadMapId;
+        payload.playPauseButtonId = payload.playPauseButtonId || 'gpx-player-play-pause-' + payloadMapId;
+        payload.boatLegendId = payload.boatLegendId || 'boat-legend-' + payloadMapId;
+
+        // Replace existing state with the new payload.
+        window.gpxPlayerPlayback = window.gpxPlayerPlayback || {};
+        window.gpxPlayerPlayback[payloadMapId] = payload;
+
+        // Trigger initialization only for this map.
+        if (window.gpxPlayerInitMap) {
+          window.gpxPlayerInitMap(payloadMapId);
+        } else if (window.initAllPlaybackMaps) {
+          window.initAllPlaybackMaps();
+        }
+
+        setStatus('loaded');
+      }
+
+      loadBtn.addEventListener('click', fetchTrack);
+    })();
+  </script>
+
+  <!--
+    The actual player script should be included after the map is created and
+    after the placeholder payload has been registered. This lets the page
+    initialize with empty data first and then swap in real data later.
+  -->
+  <script src="/gpx_player/assets/animate_tracks.js"></script>
+</body>
+</html>
